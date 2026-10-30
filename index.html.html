@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>イタチ休止カウントダウン</title>
+<style>
+  :root { --bg: #faf7f2; --fg: #2b2620; --sub: #8a7f72; --accent: #b5652b; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #1d1a17; --fg: #f1ebe3; --sub: #9c9184; --accent: #e08a4a; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 12px; padding: 16px;
+    background: var(--bg); color: var(--fg); text-align: center;
+    font-family: system-ui, "Hiragino Sans", "Yu Gothic UI", sans-serif;
+  }
+  h1 { font-size: 1.2rem; font-weight: 600; margin: 0; color: var(--sub); }
+  .num {
+    font-size: clamp(3rem, 15vw, 8rem); font-weight: 800; line-height: 1;
+    color: var(--accent); font-variant-numeric: tabular-nums;
+  }
+  .unit { font-size: 1.5rem; font-weight: 700; margin-left: 4px; }
+  #detail { font-size: 1.25rem; font-variant-numeric: tabular-nums; color: var(--sub); }
+  #when { margin-top: 24px; font-size: .9rem; color: var(--sub); }
+
+  /* 音ボタン */
+  #sound {
+    position: fixed; top: 12px; right: 12px; z-index: 10;
+    font: inherit; font-size: .9rem; padding: 6px 12px; border-radius: 999px;
+    border: 1px solid var(--sub); background: var(--bg); color: var(--fg); cursor: pointer;
+  }
+  body.final #sound { background: rgba(0,0,0,.4); color: #fff; border-color: rgba(255,255,255,.5); }
+
+  /* ===== 最後の1分 ===== */
+  #finale {
+    position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+    overflow: hidden; color: #fff;
+    background: radial-gradient(circle at 50% 50%, #3a0ca3, #10002b 70%);
+  }
+  #finale::before {
+    content: ""; position: absolute; inset: -50%;
+    background: conic-gradient(from 0deg, #ff006e, #fb5607, #ffbe0b, #3a86ff, #8338ec, #ff006e);
+    opacity: .35; filter: blur(40px); animation: spin 6s linear infinite;
+  }
+  body.final #finale { display: flex; }
+  body.last10 #finale::before { opacity: .65; animation-duration: 1.2s; }
+  body.done #finale::before { opacity: .8; animation-duration: 3s; }
+  #fx { position: absolute; inset: 0; z-index: 1; }
+  .fin-inner { position: relative; z-index: 2; padding: 16px; }
+  body.last10 .fin-inner { animation: shake .25s infinite; }
+  #finTitle { font-size: clamp(1.2rem, 4vw, 2rem); font-weight: 700; opacity: .9; }
+  #finNum {
+    font-size: clamp(8rem, 40vw, 24rem); font-weight: 900; line-height: 1;
+    font-variant-numeric: tabular-nums;
+    background: linear-gradient(180deg, #fff, #ffd60a 60%, #ff8500);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    filter: drop-shadow(0 0 30px rgba(255, 200, 0, .8));
+  }
+  body.last10 #finNum {
+    background: linear-gradient(180deg, #fff, #ff4d6d 55%, #ff006e);
+    -webkit-background-clip: text; background-clip: text;
+    filter: drop-shadow(0 0 40px rgba(255, 0, 110, .9));
+  }
+  body.done #finNum { font-size: clamp(2.5rem, 11vw, 8rem); line-height: 1.2; animation: zoomIn 1.2s cubic-bezier(.2, 1.4, .4, 1); }
+  #finNum.pop { animation: pop .6s cubic-bezier(.2, 1.6, .4, 1); }
+  #finMsg {
+    font-size: clamp(1.5rem, 6vw, 3rem); font-weight: 800; letter-spacing: .1em;
+    text-shadow: 0 0 20px #ff006e, 0 0 40px #8338ec; animation: pulse 1s ease-in-out infinite;
+  }
+  #flash { position: absolute; inset: 0; z-index: 3; background: #fff; opacity: 0; pointer-events: none; }
+  #flash.on { animation: flash .5s ease-out; }
+  #flash.big { animation: flash 1.5s ease-out; }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes pop { 0% { transform: scale(1.8); opacity: .2; } 100% { transform: scale(1); opacity: 1; } }
+  @keyframes zoomIn { 0% { transform: scale(.1) rotate(-20deg); opacity: 0; } 100% { transform: scale(1) rotate(0); opacity: 1; } }
+  @keyframes pulse { 50% { transform: scale(1.08); } }
+  @keyframes flash { 0% { opacity: .85; } 100% { opacity: 0; } }
+  @keyframes shake {
+    0%, 100% { transform: translate(0, 0); }
+    25% { transform: translate(-6px, 4px) rotate(-1deg); }
+    50% { transform: translate(5px, -5px) rotate(1deg); }
+    75% { transform: translate(-4px, -3px); }
+  }
+</style>
+</head>
+<body>
+  <button id="sound" type="button">🔇 音オフ</button>
+
+  <h1>🦦 浜田イタチ休止まで</h1>
+  <div><span class="num" id="hours">--</span><span class="unit">時間</span> <span class="num" id="minutes">--</span><span class="unit">分</span></div>
+  <div id="detail">--:--:--</div>
+  <div id="when">休止時刻 11/01 00:00</div>
+
+  <div id="finale">
+    <canvas id="fx"></canvas>
+    <div class="fin-inner">
+      <div id="finTitle">🦦 浜田イタチ休止まで</div>
+      <div id="finNum">60</div>
+      <div id="finMsg">ラスト1分！</div>
+    </div>
+    <div id="flash"></div>
+  </div>
+
+<script>
+  // 休止時刻 (2026/11/01 00:00 固定)
+  const TARGET = new Date(2026, 10, 1, 0, 0, 0).getTime();
+
+  const $ = (id) => document.getElementById(id);
+
+  // ===== 音 =====
+  let ac = null, soundOn = false;
+  $("sound").addEventListener("click", () => {
+    if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)();
+    ac.resume();
+    soundOn = !soundOn;
+    $("sound").textContent = soundOn ? "🔊 音オン" : "🔇 音オフ";
+    if (soundOn) beep(880, .12);
+  });
+
+  function beep(freq, dur, type = "square", vol = .12, when = 0) {
+    if (!soundOn || !ac) return;
+    const t = ac.currentTime + when;
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.value = freq;
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(.0001, t + dur);
+    o.connect(g).connect(ac.destination);
+    o.start(t); o.stop(t + dur);
+  }
+
+  function boomSound() {
+    if (!soundOn || !ac) return;
+    // ドカーン（ノイズ）
+    const len = ac.sampleRate * 2;
+    const buf = ac.createBuffer(1, len, ac.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3);
+    const src = ac.createBufferSource(), lp = ac.createBiquadFilter(), g = ac.createGain();
+    src.buffer = buf; lp.type = "lowpass"; lp.frequency.value = 900; g.gain.value = .8;
+    src.connect(lp).connect(g).connect(ac.destination);
+    src.start();
+    // ファンファーレ
+    [523, 659, 784, 1047].forEach((f, i) => beep(f, .25, "sawtooth", .08, .15 + i * .12));
+    [523, 659, 784, 1047].forEach((f) => beep(f, 2, "sawtooth", .05, .75));
+  }
+
+  // ===== 花火・紙吹雪 =====
+  const cv = $("fx"), ctx = cv.getContext("2d");
+  let W = 0, H = 0;
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = innerWidth; H = innerHeight;
+    cv.width = W * dpr; cv.height = H * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  addEventListener("resize", resize);
+  resize();
+
+  const parts = [], rockets = [];
+  let fxMode = "off";       // off | sparkle | boom
+  let intensity = 0;        // 0〜1（残り秒が少ないほど強く）
+  let boomStart = 0, nextRocket = 0;
+  const rand = (a, b) => a + Math.random() * (b - a);
+
+  function burst(x, y, hue, n = 110) {
+    for (let i = 0; i < n; i++) {
+      const a = rand(0, Math.PI * 2), sp = rand(1.5, 7);
+      parts.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0, max: rand(50, 100),
+        color: `hsl(${hue + rand(-25, 25)},100%,${rand(55, 75)}%)`, size: rand(1.5, 3.5), g: .06, drag: .985 });
+    }
+  }
+  function launch(hue = rand(0, 360)) {
+    rockets.push({ x: W * rand(.15, .85), y: H, vx: rand(-1, 1),
+      vy: -Math.sqrt(2 * .12 * H * rand(.45, .8)), hue });
+  }
+  function confetti(n) {
+    for (let i = 0; i < n; i++) {
+      parts.push({ x: rand(0, W), y: rand(-H * .5, -10), vx: rand(-1.5, 1.5), vy: rand(2, 5), life: 0, max: 600,
+        color: `hsl(${rand(0, 360)},90%,60%)`, w: rand(6, 10), h: rand(10, 16), rot: rand(0, 6), vr: rand(-.2, .2),
+        g: .02, drag: .995, confetti: true });
+    }
+  }
+  function sparkle() {
+    parts.push({ x: rand(0, W), y: H + 5, vx: rand(-.3, .3), vy: -rand(1, 3 + intensity * 5), life: 0, max: rand(90, 160),
+      color: `hsl(${rand(35, 55)},100%,${rand(60, 80)}%)`, size: rand(1, 2.5 + intensity * 2), g: 0, drag: 1 });
+  }
+
+  function frame(now) {
+    requestAnimationFrame(frame);
+    if (fxMode === "off") { if (parts.length || rockets.length) { parts.length = 0; rockets.length = 0; ctx.clearRect(0, 0, W, H); } return; }
+
+    if (fxMode === "sparkle") {
+      const n = 1 + Math.round(intensity * 6);
+      for (let i = 0; i < n; i++) sparkle();
+    } else if (fxMode === "boom" && now > nextRocket) {
+      launch();
+      nextRocket = now + (now - boomStart < 20000 ? rand(150, 400) : rand(1000, 2000));
+    }
+
+    ctx.clearRect(0, 0, W, H);
+    ctx.globalCompositeOperation = "lighter";
+    for (let i = rockets.length - 1; i >= 0; i--) {
+      const r = rockets[i];
+      r.x += r.vx; r.y += r.vy; r.vy += .12;
+      ctx.fillStyle = `hsl(${r.hue},100%,80%)`;
+      ctx.beginPath(); ctx.arc(r.x, r.y, 2.5, 0, Math.PI * 2); ctx.fill();
+      if (r.vy >= -1) { burst(r.x, r.y, r.hue); rockets.splice(i, 1); }
+    }
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const p = parts[i];
+      p.vx *= p.drag; p.vy = p.vy * p.drag + p.g; p.x += p.vx; p.y += p.vy; p.life++;
+      if (p.life > p.max || p.y > H + 40) { parts.splice(i, 1); continue; }
+      const alpha = 1 - p.life / p.max;
+      if (p.confetti) {
+        ctx.globalCompositeOperation = "source-over";
+        p.rot += p.vr;
+        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+        ctx.fillStyle = p.color; ctx.globalAlpha = Math.min(1, alpha * 3);
+        ctx.fillRect(-p.w / 2, -p.h / 2 * Math.abs(Math.cos(p.rot * 2)), p.w, p.h * Math.abs(Math.cos(p.rot * 2)));
+        ctx.restore();
+        ctx.globalCompositeOperation = "lighter";
+      } else {
+        ctx.globalAlpha = alpha; ctx.fillStyle = p.color;
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+    ctx.globalAlpha = 1;
+    if (parts.length > 4000) parts.splice(0, parts.length - 4000);
+  }
+  requestAnimationFrame(frame);
+
+  function retrigger(el, cls) {
+    el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls);
+  }
+
+  // ===== カウントダウン =====
+  let lastSec = null, doneFired = false;
+  const body = document.body;
+
+  function tick() {
+    const diff = TARGET - Date.now();
+    const s = Math.max(0, Math.ceil(diff / 1000));
+    if (s === lastSec) return;
+    lastSec = s;
+
+    if (s === 0) {
+      body.classList.add("final", "done");
+      body.classList.remove("last10");
+      $("hours").textContent = "0";
+      $("minutes").textContent = "00";
+      $("detail").textContent = "休止しました。爆ッ！！！！";
+      if (!doneFired) {
+        doneFired = true;
+        $("finTitle").textContent = "🦦";
+        $("finNum").classList.remove("pop");
+        $("finNum").innerHTML = "浜田イタチは<br>休止しました";
+        $("finMsg").textContent = "爆ッ！！！！";
+        retrigger($("flash"), "big");
+        fxMode = "boom"; boomStart = performance.now(); nextRocket = 0;
+        for (let i = 0; i < 8; i++) burst(rand(W * .1, W * .9), rand(H * .1, H * .6), rand(0, 360), 140);
+        confetti(350);
+        boomSound();
+      }
+      return;
+    }
+
+    doneFired = false;
+    body.classList.remove("done");
+
+    if (s <= 60) {
+      body.classList.add("final");
+      body.classList.toggle("last10", s <= 10);
+      fxMode = "sparkle";
+      intensity = (60 - s) / 60;
+      $("finTitle").textContent = "🦦 浜田イタチ休止まで";
+      $("finNum").textContent = s;
+      retrigger($("finNum"), "pop");
+      $("finMsg").textContent =
+        s <= 3 ? "！！！！" : s <= 10 ? "カウントダウン！！" : s <= 30 ? "もうすぐ…！" : "ラスト1分！";
+      if (s <= 10) {
+        retrigger($("flash"), "on");
+        launch();
+        beep(s <= 3 ? 1320 : 880, .15);
+      } else {
+        beep(600, .05, "sine", .08);
+      }
+      if (s === 30) confetti(80);
+    } else {
+      body.classList.remove("final", "last10");
+      fxMode = "off";
+    }
+
+    $("hours").textContent = Math.floor(s / 3600);
+    $("minutes").textContent = String(Math.floor(s % 3600 / 60)).padStart(2, "0");
+    $("detail").textContent = `${String(s % 60).padStart(2, "0")} 秒`;
+  }
+
+  tick();
+  setInterval(tick, 100);
+</script>
+</body>
+</html>
